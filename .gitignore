@@ -1,0 +1,64 @@
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+# --------------------------
+# IntelliJ IDEA
+# --------------------------
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# --------------------------
+# 操作系统
+# --------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# --------------------------
+# 日志与临时文件
+# --------------------------
+*.log
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.settings/
+.loadpath
+.recommenders
+
+# --------------------------
+# 环境变量 & 敏感信息
+# --------------------------
+.env
+*.env
+application-local.yml
+application-dev.yml
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
