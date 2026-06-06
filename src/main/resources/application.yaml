@@ -1,3 +1,70 @@
 spring:
   application:
     name: stackleaf-server
+  profiles:
+    active: dev   # 默认 dev 环境，Docker 部署时改为 docker
+
+  # 邮件配置 (QQ邮箱，两个环境通用)
+  mail:
+    host: smtp.qq.com
+    port: 587
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+
+# 服务端口
+server:
+  port: 8080
+
+# MyBatis-Plus 配置
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.crusader.stackleafserver.model.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# Sa-Token 配置
+sa-token:
+  token-name: Authorization
+  timeout: 86400           # token有效期(秒) 24小时
+  active-timeout: -1       # 临时有效期(秒) -1表示不限
+  is-concurrent: true      # 是否允许同一账号并发登录
+  is-share: true           # 多端登录时是否共享token
+  token-style: uuid
+  is-log: false
+
+# Knife4j (OpenAPI3) 配置
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+  group-configs:
+    - group: default
+      display-name: StackLeaf API
+      paths-to-match: /**
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+
+# MinIO 对象存储
+minio:
+  bucket-name: stackleaf-data
