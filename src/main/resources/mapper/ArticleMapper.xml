@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.crusader.stackleafserver.mapper.ArticleMapper">
+
+    <!-- 文章详情：关联作者、分类信息 -->
+    <select id="selectArticleDetail" resultType="com.crusader.stackleafserver.model.entity.Article">
+        SELECT
+            a.*,
+            u.nickname AS author_nickname,
+            u.avatar AS author_avatar
+        FROM article a
+        LEFT JOIN `user` u ON a.author_id = u.id
+        WHERE a.id = #{articleId}
+          AND a.status = 1
+    </select>
+
+    <!-- 按标签查询文章ID列表 -->
+    <select id="selectArticleIdsByTagId" resultType="java.lang.Long">
+        SELECT article_id
+        FROM article_tag
+        WHERE tag_id = #{tagId}
+    </select>
+
+</mapper>
