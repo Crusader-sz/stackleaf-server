@@ -19,6 +19,21 @@ public class MessageConstant {
     public static final String ALREADY_FOLLOWED = "已关注该用户";
     public static final String NOT_FOLLOWED = "未关注该用户";
 
+    // ========== 文章相关 ==========
+    public static final String ARTICLE_NOT_FOUND = "文章不存在";
+    public static final String NO_PERMISSION_MODIFY_ARTICLE = "无权修改该文章";
+    public static final String NO_PERMISSION_DELETE_ARTICLE = "无权删除该文章";
+    public static final String ALREADY_LIKED = "已点赞该文章";
+    public static final String ALREADY_FAVORITED = "已收藏该文章";
+
+    // ========== 分类/标签相关 ==========
+    public static final String CATEGORY_NAME_EXISTS = "分类名称已存在";
+    public static final String CATEGORY_NOT_FOUND = "分类不存在";
+    public static final String CATEGORY_HAS_ARTICLES = "该分类下存在文章，无法删除";
+    public static final String TAG_NAME_EXISTS = "标签名称已存在";
+    public static final String TAG_NOT_FOUND = "标签不存在";
+    public static final String TAG_HAS_ARTICLES = "该标签已被文章引用，无法删除";
+
     // ========== 验证码相关 ==========
     public static final String VERIFICATION_CODE_EXPIRED = "验证码错误或已过期";
     public static final String EMAIL_NOT_REGISTERED = "该邮箱未注册";

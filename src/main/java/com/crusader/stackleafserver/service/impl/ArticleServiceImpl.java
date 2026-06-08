@@ -5,6 +5,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.crusader.stackleafserver.constant.MessageConstant;
+import com.crusader.stackleafserver.constant.ResultCodeConstant;
+import com.crusader.stackleafserver.exception.BusinessException;
 import com.crusader.stackleafserver.mapper.*;
 import com.crusader.stackleafserver.model.dto.ArticleCreateDTO;
 import com.crusader.stackleafserver.model.dto.ArticleQueryDTO;
@@ -36,6 +39,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Autowired
     private ArticleFavoriteMapper articleFavoriteMapper;
     @Autowired
+    private CommentMapper commentMapper;
+    @Autowired
     private UserMapper userMapper;
     @Autowired
     private CategoryMapper categoryMapper;
@@ -66,10 +71,10 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         Long userId = StpUtil.getLoginIdAsLong();
         Article article = baseMapper.selectById(dto.getId());
         if (article == null) {
-            throw new RuntimeException("文章不存在");
+            throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.ARTICLE_NOT_FOUND);
         }
         if (!article.getAuthorId().equals(userId)) {
-            throw new RuntimeException("无权修改该文章");
+            throw new BusinessException(ResultCodeConstant.FORBIDDEN, MessageConstant.NO_PERMISSION_MODIFY_ARTICLE);
         }
 
         BeanUtils.copyProperties(dto, article, "id", "authorId", "viewCount",
@@ -87,39 +92,46 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         Long userId = StpUtil.getLoginIdAsLong();
         Article article = baseMapper.selectById(id);
         if (article == null) {
-            throw new RuntimeException("文章不存在");
+            throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.ARTICLE_NOT_FOUND);
         }
         if (!article.getAuthorId().equals(userId)) {
-            throw new RuntimeException("无权删除该文章");
+            throw new BusinessException(ResultCodeConstant.FORBIDDEN, MessageConstant.NO_PERMISSION_DELETE_ARTICLE);
         }
 
         baseMapper.deleteById(id);
         articleTagMapper.delete(new LambdaQueryWrapper<ArticleTag>().eq(ArticleTag::getArticleId, id));
         articleLikeMapper.delete(new LambdaQueryWrapper<ArticleLike>().eq(ArticleLike::getArticleId, id));
         articleFavoriteMapper.delete(new LambdaQueryWrapper<ArticleFavorite>().eq(ArticleFavorite::getArticleId, id));
+        commentMapper.delete(new LambdaQueryWrapper<Comment>().eq(Comment::getArticleId, id));
     }
 
     @Override
     public ArticleDetailVO getArticleDetail(Long id) {
         Article article = baseMapper.selectById(id);
         if (article == null) {
-            throw new RuntimeException("文章不存在");
+            throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.ARTICLE_NOT_FOUND);
         }
+
+        // 浏览数 +1
+        baseMapper.update(null, new LambdaUpdateWrapper<Article>()
+                .eq(Article::getId, id)
+                .setSql("view_count = view_count + 1"));
 
         ArticleDetailVO vo = new ArticleDetailVO();
         BeanUtils.copyProperties(article, vo);
+        vo.setViewCount(article.getViewCount() + 1);
         vo.setAuthor(getUserVO(article.getAuthorId()));
         vo.setCategory(getCategoryVO(article.getCategoryId()));
         vo.setTags(getTagVOListByArticleId(id));
 
         // 当前用户是否已点赞/收藏
-        try {
+        if (StpUtil.isLogin()) {
             Long userId = StpUtil.getLoginIdAsLong();
             vo.setIsLiked(articleLikeMapper.selectCount(new LambdaQueryWrapper<ArticleLike>()
                     .eq(ArticleLike::getArticleId, id).eq(ArticleLike::getUserId, userId)) > 0);
             vo.setIsFavorited(articleFavoriteMapper.selectCount(new LambdaQueryWrapper<ArticleFavorite>()
                     .eq(ArticleFavorite::getArticleId, id).eq(ArticleFavorite::getUserId, userId)) > 0);
-        } catch (Exception e) {
+        } else {
             vo.setIsLiked(false);
             vo.setIsFavorited(false);
         }
@@ -167,11 +179,15 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     public void likeArticle(Long articleId) {
         Long userId = StpUtil.getLoginIdAsLong();
         Article article = baseMapper.selectById(articleId);
-        if (article == null) { throw new RuntimeException("文章不存在"); }
+        if (article == null) {
+            throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.ARTICLE_NOT_FOUND);
+        }
 
         Long count = articleLikeMapper.selectCount(new LambdaQueryWrapper<ArticleLike>()
                 .eq(ArticleLike::getArticleId, articleId).eq(ArticleLike::getUserId, userId));
-        if (count > 0) { throw new RuntimeException("已点赞该文章"); }
+        if (count > 0) {
+            throw new BusinessException(ResultCodeConstant.CONFLICT, MessageConstant.ALREADY_LIKED);
+        }
 
         ArticleLike like = new ArticleLike();
         like.setArticleId(articleId);
@@ -199,11 +215,15 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     public void favoriteArticle(Long articleId) {
         Long userId = StpUtil.getLoginIdAsLong();
         Article article = baseMapper.selectById(articleId);
-        if (article == null) { throw new RuntimeException("文章不存在"); }
+        if (article == null) {
+            throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.ARTICLE_NOT_FOUND);
+        }
 
         Long count = articleFavoriteMapper.selectCount(new LambdaQueryWrapper<ArticleFavorite>()
                 .eq(ArticleFavorite::getArticleId, articleId).eq(ArticleFavorite::getUserId, userId));
-        if (count > 0) { throw new RuntimeException("已收藏该文章"); }
+        if (count > 0) {
+            throw new BusinessException(ResultCodeConstant.CONFLICT, MessageConstant.ALREADY_FAVORITED);
+        }
 
         ArticleFavorite fav = new ArticleFavorite();
         fav.setArticleId(articleId);

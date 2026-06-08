@@ -6,6 +6,7 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
+// 分页返回结果对象
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

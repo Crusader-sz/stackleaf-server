@@ -4,6 +4,7 @@ import cn.dev33.satoken.exception.NotLoginException;
 import cn.dev33.satoken.exception.NotPermissionException;
 import cn.dev33.satoken.exception.NotRoleException;
 import com.crusader.stackleafserver.constant.MessageConstant;
+import com.crusader.stackleafserver.constant.ResultCodeConstant;
 import com.crusader.stackleafserver.exception.BusinessException;
 import com.crusader.stackleafserver.result.Result;
 import lombok.extern.slf4j.Slf4j;
@@ -30,19 +31,19 @@ public class GlobalExceptionHandler {
             default -> MessageConstant.NOT_LOGIN;
         };
         log.warn("登录校验失败: type={}, message={}", e.getType(), message);
-        return Result.error(401, message);
+        return Result.error(ResultCodeConstant.UNAUTHORIZED, message);
     }
 
     @ExceptionHandler(NotRoleException.class)
     public Result<Void> handleNotRoleException(NotRoleException e) {
         log.warn("角色校验失败: role={}", e.getRole());
-        return Result.error(403, MessageConstant.NOT_ROLE_PREFIX + e.getRole());
+        return Result.error(ResultCodeConstant.FORBIDDEN, MessageConstant.NOT_ROLE_PREFIX + e.getRole());
     }
 
     @ExceptionHandler(NotPermissionException.class)
     public Result<Void> handleNotPermissionException(NotPermissionException e) {
         log.warn("权限校验失败: permission={}", e.getPermission());
-        return Result.error(403, MessageConstant.NOT_PERMISSION_PREFIX + e.getPermission());
+        return Result.error(ResultCodeConstant.FORBIDDEN, MessageConstant.NOT_PERMISSION_PREFIX + e.getPermission());
     }
 
     @ExceptionHandler(BusinessException.class)

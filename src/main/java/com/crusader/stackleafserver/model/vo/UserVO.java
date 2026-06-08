@@ -5,7 +5,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 用户信息响应 VO（脱敏，不含密码）
+ * 用户信息响应 VO（脱敏，不含密码和邮箱）
  */
 @Data
 public class UserVO {
@@ -17,8 +17,6 @@ public class UserVO {
     private String nickname;
 
     private String avatar;
-
-    private String email;
 
     private String bio;
 

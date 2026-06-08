@@ -21,26 +21,20 @@ public class UserController {
 
     @Autowired
     private UserService userService;
-
     @Autowired
     private ArticleActionService articleActionService;
 
+    // ========== 需要登录 ==========
+
     @GetMapping("/me")
     public Result<UserVO> currentUser() {
-        UserVO vo = userService.getCurrentUser();
-        return Result.success(vo);
+        return Result.success(userService.getCurrentUser());
     }
 
     @PutMapping("/profile")
     public Result<Void> updateProfile(@Valid @RequestBody UserUpdateDTO dto) {
         userService.updateProfile(dto);
         return Result.success();
-    }
-
-    @GetMapping("/{id}")
-    public Result<UserVO> getUserById(@PathVariable Long id) {
-        UserVO vo = userService.getUserById(id);
-        return Result.success(vo);
     }
 
     @PostMapping("/follow/{id}")
@@ -55,25 +49,12 @@ public class UserController {
         return Result.success();
     }
 
-    @GetMapping("/following/{userId}")
-    public Result<List<UserVO>> followingList(@PathVariable Long userId) {
-        List<UserVO> list = articleActionService.getFollowingList(userId);
-        return Result.success(list);
-    }
-
-    @GetMapping("/followers/{userId}")
-    public Result<List<UserVO>> followerList(@PathVariable Long userId) {
-        List<UserVO> list = articleActionService.getFollowerList(userId);
-        return Result.success(list);
-    }
-
     @GetMapping("/likes")
     public Result<List<ArticleVO>> likedArticles(
             @RequestParam Long userId,
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize) {
-        List<ArticleVO> list = articleActionService.getLikedArticles(userId, pageNum, pageSize).getRecords();
-        return Result.success(list);
+        return Result.success(articleActionService.getLikedArticles(userId, pageNum, pageSize).getRecords());
     }
 
     @GetMapping("/favorites")
@@ -81,7 +62,26 @@ public class UserController {
             @RequestParam Long userId,
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize) {
-        List<ArticleVO> list = articleActionService.getFavoritedArticles(userId, pageNum, pageSize).getRecords();
-        return Result.success(list);
+        return Result.success(articleActionService.getFavoritedArticles(userId, pageNum, pageSize).getRecords());
+    }
+
+    // ========== 公开接口 ==========
+
+    /** 查看用户主页（公开） */
+    @GetMapping("/profile/{id}")
+    public Result<UserVO> getUserById(@PathVariable Long id) {
+        return Result.success(userService.getUserById(id));
+    }
+
+    /** 关注列表（公开） */
+    @GetMapping("/following/{userId}")
+    public Result<List<UserVO>> followingList(@PathVariable Long userId) {
+        return Result.success(articleActionService.getFollowingList(userId));
+    }
+
+    /** 粉丝列表（公开） */
+    @GetMapping("/followers/{userId}")
+    public Result<List<UserVO>> followerList(@PathVariable Long userId) {
+        return Result.success(articleActionService.getFollowerList(userId));
     }
 }

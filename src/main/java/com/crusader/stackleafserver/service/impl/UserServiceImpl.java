@@ -109,7 +109,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Override
     public void sendVerificationCode(String email) {
         String limitKey = VerificationConstant.LIMIT_KEY_PREFIX + email;
-        if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(limitKey))) {
+        if (stringRedisTemplate.hasKey(limitKey)) {
             throw new BusinessException(ResultCodeConstant.TOO_MANY_REQUESTS, MessageConstant.VERIFICATION_CODE_RATE_LIMIT);
         }
 
@@ -119,7 +119,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         stringRedisTemplate.opsForValue().set(limitKey, "1", VerificationConstant.LIMIT_EXPIRE_SECONDS, TimeUnit.SECONDS);
 
         // TODO: 调用邮件服务发送验证码
-        log.info("验证码已生成: email={}, code={}", email, code);
+        log.info("验证码已生成: email={}", email);
     }
 
     @Override
@@ -225,10 +225,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         baseMapper.update(null, new LambdaUpdateWrapper<User>()
                 .eq(User::getId, currentUserId)
-                .setSql("following_count = following_count - 1"));
+                .setSql("following_count = GREATEST(following_count - 1, 0)"));
         baseMapper.update(null, new LambdaUpdateWrapper<User>()
                 .eq(User::getId, followUserId)
-                .setSql("follower_count = follower_count - 1"));
+                .setSql("follower_count = GREATEST(follower_count - 1, 0)"));
 
         log.info("取消关注成功: userId={}, followUserId={}", currentUserId, followUserId);
     }
