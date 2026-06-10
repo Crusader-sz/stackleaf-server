@@ -28,8 +28,11 @@ public class WebConfig implements WebMvcConfigurer {
                         "/comment/top", "/comment/children/**",
                         // 公开接口 - 分类/标签
                         "/category/list", "/tag/list",
+                        // 错误页面
+                        "/error",
                         // Swagger / Knife4j
-                        "/swagger-ui/**", "/v3/api-docs/**", "/doc.html/**"
+                        "/swagger-ui/**", "/v3/api-docs/**", "/doc.html/**",
+                        "/webjars/**"
                 );
     }
 }
