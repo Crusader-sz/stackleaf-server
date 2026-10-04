@@ -44,6 +44,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
 
+    @Autowired
+    private com.crusader.stackleafserver.service.support.UserAccess userAccess;
+
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     @Override
@@ -78,9 +81,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public String login(UserLoginDTO dto) {
         User user = baseMapper.selectOne(
-                new LambdaQueryWrapper<User>().eq(User::getUsername, dto.getUsername()));
+                new LambdaQueryWrapper<User>().eq(User::getUsername, dto.getUsername()).last("FOR UPDATE"));
         if (user == null) {
             log.warn("登录失败, 用户不存在: username={}", dto.getUsername());
             throw new BusinessException(ResultCodeConstant.UNAUTHORIZED, MessageConstant.USERNAME_OR_PASSWORD_ERROR);
@@ -132,13 +136,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
 
         User user = baseMapper.selectOne(
-                new LambdaQueryWrapper<User>().eq(User::getEmail, dto.getEmail()));
+                new LambdaQueryWrapper<User>().eq(User::getEmail, dto.getEmail()).last("FOR UPDATE"));
         if (user == null) {
             throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.EMAIL_NOT_REGISTERED);
         }
 
-        user.setPassword(passwordEncoder.encode(dto.getNewPassword()));
-        baseMapper.updateById(user);
+        baseMapper.update(null, new LambdaUpdateWrapper<User>().eq(User::getId, user.getId())
+                .set(User::getPassword, passwordEncoder.encode(dto.getNewPassword()))
+                .set(User::getUpdateTime, java.time.LocalDateTime.now()));
         stringRedisTemplate.delete(redisKey);
 
         StpUtil.kickout(user.getId());
@@ -158,17 +163,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateProfile(UserUpdateDTO dto) {
-        Long userId = StpUtil.getLoginIdAsLong();
-        User user = baseMapper.selectById(userId);
-        if (user == null) {
-            throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.USER_NOT_FOUND);
-        }
-        if (dto.getNickname() != null) { user.setNickname(dto.getNickname()); }
-        if (dto.getAvatar() != null) { user.setAvatar(dto.getAvatar()); }
-        if (dto.getBio() != null) { user.setBio(dto.getBio()); }
-        if (dto.getGithubUrl() != null) { user.setGithubUrl(dto.getGithubUrl()); }
-        if (dto.getWebsiteUrl() != null) { user.setWebsiteUrl(dto.getWebsiteUrl()); }
-        baseMapper.updateById(user);
+        Long userId = userAccess.currentUser().getId();
+        LambdaUpdateWrapper<User> update = new LambdaUpdateWrapper<User>().eq(User::getId, userId)
+                .set(dto.getNickname() != null, User::getNickname, dto.getNickname())
+                .set(dto.getAvatar() != null, User::getAvatar, dto.getAvatar())
+                .set(dto.getBio() != null, User::getBio, dto.getBio())
+                .set(dto.getGithubUrl() != null, User::getGithubUrl, dto.getGithubUrl())
+                .set(dto.getWebsiteUrl() != null, User::getWebsiteUrl, dto.getWebsiteUrl())
+                .set(User::getUpdateTime, java.time.LocalDateTime.now());
+        baseMapper.update(null, update);
 
         log.info("用户信息更新成功: userId={}", userId);
     }
@@ -181,7 +184,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw new BusinessException(ResultCodeConstant.BAD_REQUEST, MessageConstant.CANNOT_FOLLOW_SELF);
         }
 
-        User targetUser = baseMapper.selectById(followUserId);
+        userAccess.lockUsers(currentUserId, followUserId);
+        userAccess.currentUser();
+        User targetUser = baseMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getId, followUserId).last("FOR UPDATE"));
         if (targetUser == null) {
             throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.TARGET_USER_NOT_FOUND);
         }
@@ -210,7 +216,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     public void unfollow(Long followUserId) {
         Long currentUserId = StpUtil.getLoginIdAsLong();
 
-        User targetUser = baseMapper.selectById(followUserId);
+        userAccess.lockUsers(currentUserId, followUserId);
+        userAccess.currentUser();
+        User targetUser = baseMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getId, followUserId).last("FOR UPDATE"));
         if (targetUser == null) {
             throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.TARGET_USER_NOT_FOUND);
         }

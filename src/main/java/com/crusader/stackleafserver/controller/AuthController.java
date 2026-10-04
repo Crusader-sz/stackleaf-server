@@ -1,5 +1,6 @@
 package com.crusader.stackleafserver.controller;
 
+import com.crusader.stackleafserver.constant.MessageConstant;
 import com.crusader.stackleafserver.model.dto.PasswordResetDTO;
 import com.crusader.stackleafserver.model.dto.UserLoginDTO;
 import com.crusader.stackleafserver.model.dto.UserRegisterDTO;
@@ -28,7 +29,7 @@ public class AuthController {
     @PostMapping("/login")
     public Result<String> login(@Valid @RequestBody UserLoginDTO dto) {
         String token = userService.login(dto);
-        return Result.success(token);
+        return Result.success(MessageConstant.SUCCESS, token);
     }
 
     @PostMapping("/logout")

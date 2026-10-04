@@ -1,6 +1,5 @@
 package com.crusader.stackleafserver.service.impl;
 
-import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -19,6 +18,10 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.crusader.stackleafserver.constant.MessageConstant;
+import com.crusader.stackleafserver.constant.ResultCodeConstant;
+import com.crusader.stackleafserver.exception.BusinessException;
+import com.crusader.stackleafserver.service.support.ArticleAccess;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -30,6 +33,12 @@ import java.util.stream.Collectors;
 public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> implements CommentService {
 
     @Autowired
+    private com.crusader.stackleafserver.service.support.UserAccess userAccess;
+
+    @Autowired
+    private ArticleAccess articleAccess;
+
+    @Autowired
     private ArticleMapper articleMapper;
 
     @Autowired
@@ -38,7 +47,25 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createComment(CommentCreateDTO dto) {
-        Long userId = StpUtil.getLoginIdAsLong();
+        Long userId = userAccess.currentUser().getId();
+
+        articleAccess.checkPublished(articleAccess.lock(dto.getArticleId()));
+        if (dto.getParentId() != null && dto.getParentId() != 0) {
+            Comment parent = baseMapper.selectById(dto.getParentId());
+            if (parent == null || !Integer.valueOf(1).equals(parent.getStatus())
+                    || !Objects.equals(parent.getArticleId(), dto.getArticleId())) {
+                throw new BusinessException(ResultCodeConstant.BAD_REQUEST, MessageConstant.COMMENT_PARENT_INVALID);
+            }
+            if (dto.getReplyUserId() != null && !Objects.equals(dto.getReplyUserId(), parent.getUserId())) {
+                throw new BusinessException(ResultCodeConstant.BAD_REQUEST, MessageConstant.COMMENT_REPLY_INVALID);
+            }
+            if (userMapper.selectById(parent.getUserId()) == null) {
+                throw new BusinessException(ResultCodeConstant.BAD_REQUEST, MessageConstant.TARGET_USER_NOT_FOUND);
+            }
+            dto.setReplyUserId(parent.getUserId());
+        } else if (dto.getReplyUserId() != null) {
+            throw new BusinessException(ResultCodeConstant.BAD_REQUEST, MessageConstant.COMMENT_REPLY_INVALID);
+        }
 
         Comment comment = new Comment();
         BeanUtils.copyProperties(dto, comment);
@@ -60,27 +87,36 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteComment(Long id) {
-        Long userId = StpUtil.getLoginIdAsLong();
+        Long userId = userAccess.currentUser().getId();
         Comment comment = baseMapper.selectById(id);
         if (comment == null) {
-            throw new RuntimeException("评论不存在");
+            throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.COMMENT_NOT_FOUND);
+        }
+        articleAccess.lock(comment.getArticleId());
+        // 锁获取前评论可能已被另一事务删除，使用当前读重新确认。
+        comment = baseMapper.selectOne(new LambdaQueryWrapper<Comment>()
+                .eq(Comment::getId, id).last("FOR UPDATE"));
+        if (comment == null) {
+            throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.COMMENT_NOT_FOUND);
         }
         if (!Objects.equals(comment.getUserId(), userId)) {
-            throw new RuntimeException("只能删除自己的评论");
+            throw new BusinessException(ResultCodeConstant.FORBIDDEN, MessageConstant.NO_PERMISSION_DELETE_COMMENT);
         }
 
-        List<Long> allIds = collectAllChildIds(id);
+        List<Long> allIds = collectAllChildIds(comment.getArticleId(), id);
         allIds.add(id);
 
-        baseMapper.delete(new LambdaQueryWrapper<Comment>().in(Comment::getId, allIds));
+        int deleted = baseMapper.delete(new LambdaQueryWrapper<Comment>()
+                .eq(Comment::getArticleId, comment.getArticleId()).in(Comment::getId, allIds));
 
         articleMapper.update(null, new LambdaUpdateWrapper<Article>()
                 .eq(Article::getId, comment.getArticleId())
-                .setSql("comment_count = comment_count - " + allIds.size()));
+                .setSql("comment_count = GREATEST(comment_count - " + deleted + ", 0)"));
     }
 
     @Override
     public Page<CommentVO> pageTopComments(Long articleId, Integer pageNum, Integer pageSize) {
+        articleAccess.requirePublished(articleId);
         Page<Comment> page = new Page<>(pageNum, pageSize);
         LambdaQueryWrapper<Comment> wrapper = new LambdaQueryWrapper<Comment>()
                 .eq(Comment::getArticleId, articleId)
@@ -97,6 +133,7 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         for (CommentVO topVo : voList) {
             List<Comment> children = baseMapper.selectList(
                     new LambdaQueryWrapper<Comment>()
+                            .eq(Comment::getArticleId, articleId)
                             .eq(Comment::getParentId, topVo.getId())
                             .eq(Comment::getStatus, 1)
                             .orderByAsc(Comment::getCreateTime));
@@ -110,8 +147,14 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
 
     @Override
     public List<CommentVO> getChildComments(Long parentId) {
+        Comment parent = baseMapper.selectById(parentId);
+        if (parent == null || !Integer.valueOf(1).equals(parent.getStatus())) {
+            throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.COMMENT_NOT_FOUND);
+        }
+        articleAccess.requirePublished(parent.getArticleId());
         List<Comment> children = baseMapper.selectList(
                 new LambdaQueryWrapper<Comment>()
+                        .eq(Comment::getArticleId, parent.getArticleId())
                         .eq(Comment::getParentId, parentId)
                         .eq(Comment::getStatus, 1)
                         .orderByAsc(Comment::getCreateTime));
@@ -121,15 +164,23 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
     /**
      * 递归收集所有子孙评论ID
      */
-    private List<Long> collectAllChildIds(Long parentId) {
+    private List<Long> collectAllChildIds(Long articleId, Long parentId) {
         List<Long> ids = new ArrayList<>();
-        List<Comment> children = baseMapper.selectList(
-                new LambdaQueryWrapper<Comment>()
-                        .eq(Comment::getParentId, parentId)
-                        .select(Comment::getId));
-        for (Comment child : children) {
-            ids.add(child.getId());
-            ids.addAll(collectAllChildIds(child.getId()));
+        Set<Long> visited = new HashSet<>();
+        visited.add(parentId);
+        List<Long> level = List.of(parentId);
+        while (!level.isEmpty()) {
+            List<Comment> children = baseMapper.selectList(new LambdaQueryWrapper<Comment>()
+                    .eq(Comment::getArticleId, articleId).in(Comment::getParentId, level)
+                    .select(Comment::getId).last("FOR UPDATE"));
+            List<Long> next = new ArrayList<>();
+            for (Comment child : children) {
+                if (visited.add(child.getId())) {
+                    ids.add(child.getId());
+                    next.add(child.getId());
+                }
+            }
+            level = next;
         }
         return ids;
     }

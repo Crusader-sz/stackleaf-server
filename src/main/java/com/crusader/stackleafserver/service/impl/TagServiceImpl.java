@@ -15,6 +15,9 @@ import com.crusader.stackleafserver.service.TagService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.dao.DuplicateKeyException;
+import com.crusader.stackleafserver.service.support.UserAccess;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -26,10 +29,15 @@ import java.util.stream.Collectors;
 public class TagServiceImpl extends ServiceImpl<TagMapper, Tag> implements TagService {
 
     @Autowired
+    private UserAccess userAccess;
+
+    @Autowired
     private ArticleTagMapper articleTagMapper;
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void createTag(TagDTO dto) {
+        userAccess.requireAdmin();
         Long count = baseMapper.selectCount(
                 new LambdaQueryWrapper<Tag>().eq(Tag::getName, dto.getName()));
         if (count > 0) {
@@ -38,21 +46,31 @@ public class TagServiceImpl extends ServiceImpl<TagMapper, Tag> implements TagSe
 
         Tag tag = new Tag();
         BeanUtils.copyProperties(dto, tag);
-        baseMapper.insert(tag);
+        try { baseMapper.insert(tag); }
+        catch (DuplicateKeyException e) { throw new BusinessException(ResultCodeConstant.CONFLICT, MessageConstant.TAG_NAME_EXISTS); }
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void updateTag(TagDTO dto) {
-        Tag tag = baseMapper.selectById(dto.getId());
+        userAccess.requireAdmin();
+        Tag tag = baseMapper.selectOne(new LambdaQueryWrapper<Tag>()
+                .eq(Tag::getId, dto.getId()).last("FOR UPDATE"));
         if (tag == null) {
             throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.TAG_NOT_FOUND);
         }
         if (dto.getName() != null) { tag.setName(dto.getName()); }
-        baseMapper.updateById(tag);
+        try { baseMapper.updateById(tag); }
+        catch (DuplicateKeyException e) { throw new BusinessException(ResultCodeConstant.CONFLICT, MessageConstant.TAG_NAME_EXISTS); }
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void deleteTag(Long id) {
+        userAccess.requireAdmin();
+        if (baseMapper.selectOne(new LambdaQueryWrapper<Tag>().eq(Tag::getId, id).last("FOR UPDATE")) == null) {
+            throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.TAG_NOT_FOUND);
+        }
         Long refCount = articleTagMapper.selectCount(
                 new LambdaQueryWrapper<ArticleTag>().eq(ArticleTag::getTagId, id));
         if (refCount > 0) {

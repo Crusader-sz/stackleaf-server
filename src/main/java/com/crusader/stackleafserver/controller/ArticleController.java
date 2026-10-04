@@ -47,9 +47,29 @@ public class ArticleController {
     }
 
     @GetMapping("/page")
-    public Result<Page<ArticleVO>> page(ArticleQueryDTO dto) {
+    public Result<Page<ArticleVO>> page(@Valid ArticleQueryDTO dto) {
         Page<ArticleVO> page = articleService.pageArticles(dto);
         return Result.success(page);
+    }
+
+    @GetMapping("/mine/page")
+    public Result<Page<ArticleVO>> mine(@Valid ArticleQueryDTO dto) {
+        return Result.success(articleService.pageOwnedArticles(dto));
+    }
+
+    @GetMapping("/mine/{id}")
+    public Result<ArticleDetailVO> mineDetail(@PathVariable Long id) {
+        return Result.success(articleService.getOwnedArticleDetail(id));
+    }
+
+    @GetMapping("/admin/page")
+    public Result<Page<ArticleVO>> adminPage(@Valid ArticleQueryDTO dto) {
+        return Result.success(articleService.pageAdminArticles(dto));
+    }
+
+    @GetMapping("/admin/{id}")
+    public Result<ArticleDetailVO> adminDetail(@PathVariable Long id) {
+        return Result.success(articleService.getAdminArticleDetail(id));
     }
 
     @PostMapping("/like/{id}")

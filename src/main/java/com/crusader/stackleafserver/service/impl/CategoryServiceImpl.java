@@ -15,6 +15,9 @@ import com.crusader.stackleafserver.service.CategoryService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.dao.DuplicateKeyException;
+import com.crusader.stackleafserver.service.support.UserAccess;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -26,10 +29,15 @@ import java.util.stream.Collectors;
 public class CategoryServiceImpl extends ServiceImpl<CategoryMapper, Category> implements CategoryService {
 
     @Autowired
+    private UserAccess userAccess;
+
+    @Autowired
     private ArticleMapper articleMapper;
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void createCategory(CategoryDTO dto) {
+        userAccess.requireAdmin();
         Long count = baseMapper.selectCount(
                 new LambdaQueryWrapper<Category>().eq(Category::getName, dto.getName()));
         if (count > 0) {
@@ -38,23 +46,33 @@ public class CategoryServiceImpl extends ServiceImpl<CategoryMapper, Category> i
 
         Category category = new Category();
         BeanUtils.copyProperties(dto, category);
-        baseMapper.insert(category);
+        try { baseMapper.insert(category); }
+        catch (DuplicateKeyException e) { throw new BusinessException(ResultCodeConstant.CONFLICT, MessageConstant.CATEGORY_NAME_EXISTS); }
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void updateCategory(CategoryDTO dto) {
-        Category category = baseMapper.selectById(dto.getId());
+        userAccess.requireAdmin();
+        Category category = baseMapper.selectOne(new LambdaQueryWrapper<Category>()
+                .eq(Category::getId, dto.getId()).last("FOR UPDATE"));
         if (category == null) {
             throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.CATEGORY_NOT_FOUND);
         }
         if (dto.getName() != null) { category.setName(dto.getName()); }
         if (dto.getDescription() != null) { category.setDescription(dto.getDescription()); }
         if (dto.getSort() != null) { category.setSort(dto.getSort()); }
-        baseMapper.updateById(category);
+        try { baseMapper.updateById(category); }
+        catch (DuplicateKeyException e) { throw new BusinessException(ResultCodeConstant.CONFLICT, MessageConstant.CATEGORY_NAME_EXISTS); }
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void deleteCategory(Long id) {
+        userAccess.requireAdmin();
+        if (baseMapper.selectOne(new LambdaQueryWrapper<Category>().eq(Category::getId, id).last("FOR UPDATE")) == null) {
+            throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.CATEGORY_NOT_FOUND);
+        }
         Long articleCount = articleMapper.selectCount(
                 new LambdaQueryWrapper<Article>().eq(Article::getCategoryId, id));
         if (articleCount > 0) {

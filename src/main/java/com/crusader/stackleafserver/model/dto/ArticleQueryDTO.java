@@ -1,6 +1,7 @@
 package com.crusader.stackleafserver.model.dto;
 
 import lombok.Data;
+import jakarta.validation.constraints.*;
 
 /**
  * 文章分页查询 DTO
@@ -9,9 +10,13 @@ import lombok.Data;
 public class ArticleQueryDTO {
 
     /** 当前页码，默认 1 */
+    @NotNull
+    @Min(1)
     private Integer pageNum = 1;
 
     /** 每页条数，默认 10 */
+    @NotNull
+    @Min(1) @Max(100)
     private Integer pageSize = 10;
 
     /** 分类ID */
@@ -21,8 +26,10 @@ public class ArticleQueryDTO {
     private Long tagId;
 
     /** 关键词（标题模糊搜索） */
+    @Size(max = 200)
     private String keyword;
 
     /** 状态: 0-草稿 1-已发布 2-下架 */
+    @Min(0) @Max(2)
     private Integer status;
 }

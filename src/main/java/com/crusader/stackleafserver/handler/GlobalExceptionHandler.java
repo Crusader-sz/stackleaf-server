@@ -8,8 +8,12 @@ import com.crusader.stackleafserver.constant.ResultCodeConstant;
 import com.crusader.stackleafserver.exception.BusinessException;
 import com.crusader.stackleafserver.result.Result;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * 全局异常处理器
@@ -17,6 +21,20 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public Result<Void> handleValidationException(MethodArgumentNotValidException e) {
+        String message = e.getBindingResult().getAllErrors().stream()
+                .map(error -> error.getDefaultMessage())
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .collect(Collectors.joining("；"));
+        if (message.isBlank()) {
+            message = MessageConstant.INVALID_PARAMETER;
+        }
+        return Result.error(ResultCodeConstant.BAD_REQUEST, message);
+    }
 
     @ExceptionHandler(NotLoginException.class)
     public Result<Void> handleNotLoginException(NotLoginException e) {

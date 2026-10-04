@@ -39,6 +39,14 @@ public interface ArticleService extends IService<Article> {
      */
     Page<ArticleVO> pageArticles(ArticleQueryDTO dto);
 
+    Page<ArticleVO> pageOwnedArticles(ArticleQueryDTO dto);
+
+    Page<ArticleVO> pageAdminArticles(ArticleQueryDTO dto);
+
+    ArticleDetailVO getOwnedArticleDetail(Long id);
+
+    ArticleDetailVO getAdminArticleDetail(Long id);
+
     /**
      * 点赞文章
      */

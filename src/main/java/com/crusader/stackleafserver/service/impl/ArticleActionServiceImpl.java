@@ -89,7 +89,8 @@ public class ArticleActionServiceImpl implements ArticleActionService {
 
     private Page<ArticleVO> toArticleVOPage(Page<?> sourcePage, int pageNum, int pageSize, List<Long> articleIds) {
         if (articleIds.isEmpty()) { return new Page<>(pageNum, pageSize, 0); }
-        List<Article> articles = articleMapper.selectBatchIds(articleIds);
+        List<Article> articles = articleMapper.selectList(new LambdaQueryWrapper<Article>()
+                .in(Article::getId, articleIds).eq(Article::getStatus, 1));
         List<ArticleVO> voList = articles.stream().map(this::convertToArticleVO).collect(Collectors.toList());
         Page<ArticleVO> voPage = new Page<>(pageNum, pageSize, sourcePage.getTotal());
         voPage.setRecords(voList);

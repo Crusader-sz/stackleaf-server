@@ -20,6 +20,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
+import com.crusader.stackleafserver.service.support.UserAccess;
+import com.crusader.stackleafserver.service.support.ArticleAccess;
+import java.util.Objects;
+import java.util.LinkedHashSet;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -31,6 +35,11 @@ import java.util.stream.Collectors;
  */
 @Service
 public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> implements ArticleService {
+
+    @Autowired
+    private UserAccess userAccess;
+    @Autowired
+    private ArticleAccess articleAccess;
 
     @Autowired
     private ArticleTagMapper articleTagMapper;
@@ -50,11 +59,16 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createArticle(ArticleCreateDTO dto) {
-        Long userId = StpUtil.getLoginIdAsLong();
+        Long userId = userAccess.currentUser().getId();
+        validateStatus(dto.getStatus());
+        if (Integer.valueOf(2).equals(dto.getStatus())) { userAccess.requireAdmin(); }
+        validateReferences(dto.getCategoryId(), dto.getTagIds());
 
         Article article = new Article();
         BeanUtils.copyProperties(dto, article);
         article.setAuthorId(userId);
+        article.setStatus(dto.getStatus() == null ? 0 : dto.getStatus());
+        article.setIsTop(0);
         article.setViewCount(0);
         article.setLikeCount(0);
         article.setFavoriteCount(0);
@@ -68,33 +82,48 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateArticle(ArticleUpdateDTO dto) {
-        Long userId = StpUtil.getLoginIdAsLong();
-        Article article = baseMapper.selectById(dto.getId());
-        if (article == null) {
-            throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.ARTICLE_NOT_FOUND);
-        }
-        if (!article.getAuthorId().equals(userId)) {
+        User user = userAccess.currentUser();
+        Article article = articleAccess.lock(dto.getId());
+        boolean admin = userAccess.isAdmin(user);
+        if (!admin && !Objects.equals(article.getAuthorId(), user.getId())) {
             throw new BusinessException(ResultCodeConstant.FORBIDDEN, MessageConstant.NO_PERMISSION_MODIFY_ARTICLE);
         }
-
-        BeanUtils.copyProperties(dto, article, "id", "authorId", "viewCount",
-                "likeCount", "favoriteCount", "commentCount");
+        validateStatus(dto.getStatus());
+        if ((dto.getTitle() != null && dto.getTitle().isBlank())
+                || (dto.getContent() != null && dto.getContent().isBlank())) {
+            throw new BusinessException(ResultCodeConstant.BAD_REQUEST, MessageConstant.INVALID_PARAMETER);
+        }
+        if (dto.getIsTop() != null && dto.getIsTop() != 0 && dto.getIsTop() != 1) {
+            throw new BusinessException(ResultCodeConstant.BAD_REQUEST, MessageConstant.INVALID_PARAMETER);
+        }
+        if (!admin && (dto.getIsTop() != null || Integer.valueOf(2).equals(dto.getStatus())
+                || (Integer.valueOf(2).equals(article.getStatus()) && dto.getStatus() != null
+                && !Objects.equals(dto.getStatus(), article.getStatus())))) {
+            throw new BusinessException(ResultCodeConstant.FORBIDDEN, MessageConstant.ARTICLE_MODERATION_REQUIRED);
+        }
+        validateReferences(dto.getCategoryId(), dto.getTagIds());
+        if (dto.getTitle() != null) { article.setTitle(dto.getTitle()); }
+        if (dto.getSummary() != null) { article.setSummary(dto.getSummary()); }
+        if (dto.getContent() != null) { article.setContent(dto.getContent()); }
+        if (dto.getCoverImg() != null) { article.setCoverImg(dto.getCoverImg()); }
+        if (dto.getCategoryId() != null) { article.setCategoryId(dto.getCategoryId()); }
+        if (dto.getStatus() != null) { article.setStatus(dto.getStatus()); }
+        if (dto.getIsTop() != null) { article.setIsTop(dto.getIsTop()); }
         baseMapper.updateById(article);
 
-        articleTagMapper.delete(new LambdaQueryWrapper<ArticleTag>()
-                .eq(ArticleTag::getArticleId, article.getId()));
-        saveArticleTags(article.getId(), dto.getTagIds());
+        if (dto.getTagIds() != null) {
+            articleTagMapper.delete(new LambdaQueryWrapper<ArticleTag>()
+                    .eq(ArticleTag::getArticleId, article.getId()));
+            saveArticleTags(article.getId(), dto.getTagIds());
+        }
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteArticle(Long id) {
-        Long userId = StpUtil.getLoginIdAsLong();
-        Article article = baseMapper.selectById(id);
-        if (article == null) {
-            throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.ARTICLE_NOT_FOUND);
-        }
-        if (!article.getAuthorId().equals(userId)) {
+        User user = userAccess.currentUser();
+        Article article = articleAccess.lock(id);
+        if (!userAccess.isAdmin(user) && !Objects.equals(article.getAuthorId(), user.getId())) {
             throw new BusinessException(ResultCodeConstant.FORBIDDEN, MessageConstant.NO_PERMISSION_DELETE_ARTICLE);
         }
 
@@ -107,26 +136,46 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
     @Override
     public ArticleDetailVO getArticleDetail(Long id) {
+        Article article = articleAccess.requirePublished(id);
+        baseMapper.update(null, new LambdaUpdateWrapper<Article>()
+                .eq(Article::getId, id).setSql("view_count = view_count + 1"));
+        article.setViewCount(article.getViewCount() + 1);
+        return toDetail(article);
+    }
+
+    @Override
+    public ArticleDetailVO getOwnedArticleDetail(Long id) {
+        Long userId = userAccess.currentUser().getId();
+        Article article = baseMapper.selectOne(new LambdaQueryWrapper<Article>()
+                .eq(Article::getId, id).eq(Article::getAuthorId, userId));
+        if (article == null) {
+            throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.ARTICLE_NOT_FOUND);
+        }
+        return toDetail(article);
+    }
+
+    @Override
+    public ArticleDetailVO getAdminArticleDetail(Long id) {
+        userAccess.requireAdmin();
         Article article = baseMapper.selectById(id);
         if (article == null) {
             throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.ARTICLE_NOT_FOUND);
         }
+        return toDetail(article);
+    }
 
-        // 浏览数 +1
-        baseMapper.update(null, new LambdaUpdateWrapper<Article>()
-                .eq(Article::getId, id)
-                .setSql("view_count = view_count + 1"));
-
+    private ArticleDetailVO toDetail(Article article) {
+        Long id = article.getId();
         ArticleDetailVO vo = new ArticleDetailVO();
         BeanUtils.copyProperties(article, vo);
-        vo.setViewCount(article.getViewCount() + 1);
+        vo.setViewCount(article.getViewCount());
         vo.setAuthor(getUserVO(article.getAuthorId()));
         vo.setCategory(getCategoryVO(article.getCategoryId()));
         vo.setTags(getTagVOListByArticleId(id));
 
         // 当前用户是否已点赞/收藏
         if (StpUtil.isLogin()) {
-            Long userId = StpUtil.getLoginIdAsLong();
+            Long userId = userAccess.currentUser().getId();
             vo.setIsLiked(articleLikeMapper.selectCount(new LambdaQueryWrapper<ArticleLike>()
                     .eq(ArticleLike::getArticleId, id).eq(ArticleLike::getUserId, userId)) > 0);
             vo.setIsFavorited(articleFavoriteMapper.selectCount(new LambdaQueryWrapper<ArticleFavorite>()
@@ -141,11 +190,27 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
     @Override
     public Page<ArticleVO> pageArticles(ArticleQueryDTO dto) {
+        return queryArticles(dto, null, 1);
+    }
+
+    @Override
+    public Page<ArticleVO> pageOwnedArticles(ArticleQueryDTO dto) {
+        return queryArticles(dto, userAccess.currentUser().getId(), dto.getStatus());
+    }
+
+    @Override
+    public Page<ArticleVO> pageAdminArticles(ArticleQueryDTO dto) {
+        userAccess.requireAdmin();
+        return queryArticles(dto, null, dto.getStatus());
+    }
+
+    private Page<ArticleVO> queryArticles(ArticleQueryDTO dto, Long authorId, Integer status) {
         Page<Article> page = new Page<>(dto.getPageNum(), dto.getPageSize());
         LambdaQueryWrapper<Article> wrapper = new LambdaQueryWrapper<>();
         wrapper.like(dto.getKeyword() != null, Article::getTitle, dto.getKeyword())
                 .eq(dto.getCategoryId() != null, Article::getCategoryId, dto.getCategoryId())
-                .eq(dto.getStatus() != null, Article::getStatus, dto.getStatus())
+                .eq(status != null, Article::getStatus, status)
+                .eq(authorId != null, Article::getAuthorId, authorId)
                 .orderByDesc(Article::getIsTop)
                 .orderByDesc(Article::getCreateTime);
 
@@ -177,11 +242,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void likeArticle(Long articleId) {
-        Long userId = StpUtil.getLoginIdAsLong();
-        Article article = baseMapper.selectById(articleId);
-        if (article == null) {
-            throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.ARTICLE_NOT_FOUND);
-        }
+        Long userId = userAccess.currentUser().getId();
+        articleAccess.checkPublished(articleAccess.lock(articleId));
 
         Long count = articleLikeMapper.selectCount(new LambdaQueryWrapper<ArticleLike>()
                 .eq(ArticleLike::getArticleId, articleId).eq(ArticleLike::getUserId, userId));
@@ -201,7 +263,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void unlikeArticle(Long articleId) {
-        Long userId = StpUtil.getLoginIdAsLong();
+        Long userId = userAccess.currentUser().getId();
         int deleted = articleLikeMapper.delete(new LambdaQueryWrapper<ArticleLike>()
                 .eq(ArticleLike::getArticleId, articleId).eq(ArticleLike::getUserId, userId));
         if (deleted > 0) {
@@ -213,11 +275,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void favoriteArticle(Long articleId) {
-        Long userId = StpUtil.getLoginIdAsLong();
-        Article article = baseMapper.selectById(articleId);
-        if (article == null) {
-            throw new BusinessException(ResultCodeConstant.NOT_FOUND, MessageConstant.ARTICLE_NOT_FOUND);
-        }
+        Long userId = userAccess.currentUser().getId();
+        articleAccess.checkPublished(articleAccess.lock(articleId));
 
         Long count = articleFavoriteMapper.selectCount(new LambdaQueryWrapper<ArticleFavorite>()
                 .eq(ArticleFavorite::getArticleId, articleId).eq(ArticleFavorite::getUserId, userId));
@@ -237,7 +296,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void unfavoriteArticle(Long articleId) {
-        Long userId = StpUtil.getLoginIdAsLong();
+        Long userId = userAccess.currentUser().getId();
         int deleted = articleFavoriteMapper.delete(new LambdaQueryWrapper<ArticleFavorite>()
                 .eq(ArticleFavorite::getArticleId, articleId).eq(ArticleFavorite::getUserId, userId));
         if (deleted > 0) {
@@ -248,9 +307,32 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
     // ==================== private ====================
 
+    private void validateStatus(Integer status) {
+        if (status != null && (status < 0 || status > 2)) {
+            throw new BusinessException(ResultCodeConstant.BAD_REQUEST, MessageConstant.ARTICLE_STATUS_INVALID);
+        }
+    }
+
+    private void validateReferences(Long categoryId, List<Long> tagIds) {
+        if (categoryId != null && categoryMapper.selectOne(new LambdaQueryWrapper<Category>()
+                .eq(Category::getId, categoryId).last("FOR SHARE")) == null) {
+            throw new BusinessException(ResultCodeConstant.BAD_REQUEST, MessageConstant.CATEGORY_NOT_FOUND);
+        }
+        if (!CollectionUtils.isEmpty(tagIds)) {
+            if (tagIds.stream().anyMatch(id -> id == null || id <= 0)) {
+                throw new BusinessException(ResultCodeConstant.BAD_REQUEST, MessageConstant.TAG_IDS_INVALID);
+            }
+            for (Long id : tagIds.stream().distinct().sorted().toList()) {
+                if (tagMapper.selectOne(new LambdaQueryWrapper<Tag>().eq(Tag::getId, id).last("FOR SHARE")) == null) {
+                    throw new BusinessException(ResultCodeConstant.BAD_REQUEST, MessageConstant.TAG_IDS_INVALID);
+                }
+            }
+        }
+    }
+
     private void saveArticleTags(Long articleId, List<Long> tagIds) {
         if (CollectionUtils.isEmpty(tagIds)) { return; }
-        for (Long tagId : tagIds) {
+        for (Long tagId : new LinkedHashSet<>(tagIds)) {
             ArticleTag at = new ArticleTag();
             at.setArticleId(articleId);
             at.setTagId(tagId);
